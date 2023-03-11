@@ -8,6 +8,7 @@
 #include <iostream>
 
 #include <workerd/api/util.h>
+#include <workerd/api/actor-state.h>
 #include <workerd/jsg/jsg.h>
 #include <workerd/jsg/ser.h>
 #include <workerd/jsg/setup.h>
