@@ -7,9 +7,11 @@
 #include "buffer-base64.h"
 #include "buffer-string-search.h"
 #include <workerd/jsg/buffersource.h>
-#include <workerd/api/crypto-impl.h>
 #include <kj/encoding.h>
 #include <algorithm>
+
+using kj::uint;
+using kj::byte;
 
 // These are defined by <sys/byteorder.h> or <netinet/in.h> on some systems.
 // To avoid warnings, undefine them before redefining them.

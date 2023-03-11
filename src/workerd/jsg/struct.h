@@ -9,7 +9,6 @@
 // struct is translated to/from a native JS object with the same field names.
 
 #include "util.h"
-#include "value.h"
 #include "web-idl.h"
 
 namespace workerd::jsg {

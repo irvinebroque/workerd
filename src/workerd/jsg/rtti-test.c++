@@ -2,8 +2,6 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
-#include <capnp/serialize-text.h>
-#include <workerd/jsg/jsg-test.h>
 #include <workerd/jsg/rtti.h>
 
 struct MockConfig {};

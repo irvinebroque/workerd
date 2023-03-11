@@ -8,7 +8,6 @@
 #include <workerd/jsg/jsg.h>
 #include <workerd/jsg/ser.h>
 #include <workerd/jsg/util.h>
-#include <workerd/util/sentry.h>
 #include <capnp/message.h>
 #include <v8.h>
 #include <workerd/io/actor-cache.h>

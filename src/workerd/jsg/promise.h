@@ -7,7 +7,6 @@
 #include "util.h"
 #include "wrappable.h"
 #include "jsg.h"
-#include "web-idl.h"
 
 namespace workerd::jsg {
 

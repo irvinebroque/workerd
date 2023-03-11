@@ -10,7 +10,6 @@
 #include <kj/memory.h>
 #include <kj/parse/char.h>
 #include <workerd/util/http-util.h>
-#include <workerd/jsg/ser.h>
 #include <workerd/io/io-context.h>
 #include <set>
 

@@ -3,7 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 #include "html-rewriter.h"
-#include "system-streams.h"
+#include "streams.h"
 #include "util.h"
 #include "c-api/include/lol_html.h"
 #include <workerd/io/promise-wrapper.h>

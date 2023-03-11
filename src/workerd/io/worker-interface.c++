@@ -4,9 +4,10 @@
 
 #include "worker-interface.h"
 #include <kj/debug.h>
-#include <workerd/util/own-util.h>
 
 namespace workerd {
+using kj::byte;
+using kj::uint;
 
 class PromisedWorkerInterface final: public kj::Refcounted, public WorkerInterface {
   // A WorkerInterface that delays requests until some promise resolves, then forwards them to the

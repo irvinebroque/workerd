@@ -9,9 +9,6 @@
 // Can be used to generate typescript type, dynamically invoke methods, fuzz, check backward
 // compatibility etc.
 
-#include <type_traits>
-#include <capnp/message.h>
-#include <kj/table.h>
 #include <workerd/jsg/jsg.h>
 #include <workerd/jsg/rtti.capnp.h>
 

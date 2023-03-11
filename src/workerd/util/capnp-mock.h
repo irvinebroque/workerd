@@ -8,7 +8,6 @@
 #include <kj/test.h>
 #include <kj/debug.h>
 #include <capnp/dynamic.h>
-#include <capnp/serialize-text.h>
 #include <kj/list.h>
 #include <kj/map.h>
 #include <kj/source-location.h>

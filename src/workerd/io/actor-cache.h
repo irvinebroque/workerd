@@ -6,14 +6,12 @@
 
 #include <kj/async.h>
 #include <workerd/io/actor-storage.h>
-#include <workerd/io/io-context.h>
 #include <kj/one-of.h>
 #include <kj/map.h>
 #include <kj/list.h>
 #include <kj/time.h>
 #include <kj/mutex.h>
 #include <atomic>
-#include <workerd/util/wait-list.h>
 
 namespace workerd {
 
