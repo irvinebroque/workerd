@@ -306,7 +306,10 @@ v8::Local<v8::Module> compileEsmModule(
     jsg::Lock& js,
     kj::StringPtr name,
     kj::ArrayPtr<const char> content,
-    ModuleInfoCompileOption option) {
+    ModuleInfoCompileOption option,
+    const ModuleRegistryObserver& observer) {
+  auto compilationObserver = observer.onEsmCompilationStart(js.v8Isolate, name, option);
+
   // Must pass true for `is_module`, but we can skip everything else.
   const int resourceLineOffset = 0;
   const int resourceColumnOffset = 0;
@@ -389,8 +392,9 @@ ModuleRegistry::ModuleInfo::ModuleInfo(
     jsg::Lock& js,
     kj::StringPtr name,
     kj::ArrayPtr<const char> content,
-    CompileOption flags)
-    : ModuleInfo(js, compileEsmModule(js, name, content, flags)) {}
+    ModuleInfoCompileOption flags,
+    const ModuleRegistryObserver& observer)
+    : ModuleInfo(js, compileEsmModule(js, name, content, flags, observer)) {}
 
 ModuleRegistry::ModuleInfo::ModuleInfo(
     jsg::Lock& js,
