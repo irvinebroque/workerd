@@ -2099,6 +2099,6 @@ inline v8::Local<v8::Data> Data::getHandle(jsg::Lock& js) {
 }  // namespace workerd::jsg
 
 // These two includes are needed for the JSG type glue macros to work.
-#include "resource.h"
-#include "dom-exception.h"
+//#include "resource.h"
+//#include "dom-exception.h"
 #include "struct.h"

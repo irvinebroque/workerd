@@ -10,6 +10,7 @@
 
 #include "util.h"
 #include "web-idl.h"
+#include "kj/tuple.h"
 
 namespace workerd::jsg {
 

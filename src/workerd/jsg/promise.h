@@ -7,6 +7,8 @@
 #include "util.h"
 #include "wrappable.h"
 #include "jsg.h"
+#include <kj/table.h>
+#include <kj/async.h>
 
 namespace workerd::jsg {
 

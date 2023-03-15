@@ -6,6 +6,7 @@
 // Public API for setting up JavaScript context. Only high-level code needs to include this file.
 
 #include "jsg.h"
+#include "dom-exception.h"
 #include "type-wrapper.h"
 #include <workerd/util/batch-queue.h>
 #include <kj/map.h>
