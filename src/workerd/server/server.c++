@@ -1277,7 +1277,7 @@ public:
                             -> jsg::Ref<api::DurableObjectStorage> {
             KJ_IF_MAYBE(a, actorSqlite) {
               return jsg::alloc<api::DurableObjectStorage>(
-                  IoContext::current().addObject(*a));
+                  IoContext::current().addObject(kj::implicitCast<ActorCacheInterface&>(*a)));
             } else {
               return jsg::alloc<api::DurableObjectStorage>(
                   IoContext::current().addObject(actorCache));
