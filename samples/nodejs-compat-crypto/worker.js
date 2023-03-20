@@ -8,6 +8,8 @@ import {
 
 import { promisify } from 'node:util';
 
+import { Readable } from 'node:stream';
+
 export default {
   async fetch() {
 
@@ -23,6 +25,23 @@ export default {
     console.log(randomInt(10));
     console.log(await promisify(randomInt)(10));
     console.log(randomUUID());
+
+    // Let's create a Node.js stream of random numbers...
+    // then use Node.js' stream reduce operator to sum them...
+    let n = 0;
+    const readable = new Readable({
+      objectMode: true,
+      read(size) {
+        for (let count = 0; count < size; count++) {
+          this.push(randomInt(100))
+          if (++n === 200) {
+            this.push(null);
+            break;
+          }
+        }
+      }
+    });
+    console.log(await readable.reduce((p, c) => p + c, 0));
 
     return new Response("ok");
   }

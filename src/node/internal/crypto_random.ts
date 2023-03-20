@@ -169,15 +169,15 @@ function getRandomInt(min: number, max: number) {
   // than or equal to 0 and less than randLimit.
   const randLimit = RAND_MAX - (RAND_MAX % range);
 
+  if (randomCacheOffset >= randomCache.length) {
+    // This might block the thread for a bit, but we are in sync mode.
+    randomFillSync(randomCache);
+    randomCacheOffset = 0;
+  }
+
   // If we don't have a callback, or if there is still data in the cache, we can
   // do this synchronously, which is super fast.
   while (randomCacheOffset < randomCache.length) {
-    if (randomCacheOffset === randomCache.length) {
-      // This might block the thread for a bit, but we are in sync mode.
-      randomFillSync(randomCache);
-      randomCacheOffset = 0;
-    }
-
     const x = randomCache.readUIntBE(randomCacheOffset, 6);
     randomCacheOffset += 6;
     if (x < randLimit) {
