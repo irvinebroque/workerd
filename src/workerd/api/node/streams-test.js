@@ -11234,3 +11234,157 @@ export const push_strings = {
   }
 };
 
+export const filter = {
+  async test(ctrl, env, ctx) {
+    {
+      // Filter works on synchronous streams with a synchronous predicate
+      const stream = Readable.from([1, 2, 3, 4, 5]).filter((x) => x < 3);
+      const result = [1, 2];
+
+      for await (const item of stream) {
+        strictEqual(item, result.shift());
+      }
+    }
+    {
+      // Filter works on synchronous streams with an asynchronous predicate
+      const stream = Readable.from([1, 2, 3, 4, 5]).filter(async (x) => {
+        await Promise.resolve();
+        return x > 3;
+      })
+      const result = [4, 5];
+      for await (const item of stream) {
+        strictEqual(item, result.shift());
+      }
+    }
+    {
+      // Map works on asynchronous streams with a asynchronous mapper
+      const stream = Readable.from([1, 2, 3, 4, 5])
+        .map(async (x) => {
+          await Promise.resolve();
+          return x + x;
+        })
+        .filter((x) => x > 5);
+      const result = [6, 8, 10];
+      for await (const item of stream) {
+        strictEqual(item, result.shift());
+      }
+    }
+    {
+      // Filter works on an infinite stream
+      const stream = Readable.from(
+        (async function* () {
+          while (true) yield 1;
+        })()
+      ).filter(async (x) => x < 3);
+      let i = 1;
+      for await (const item of stream) {
+        strictEqual(item, 1);
+        if (++i === 5) break;
+      }
+    }
+    {
+      // Filter works on constructor created streams
+      let i = 0;
+      const stream = new Readable({
+        read() {
+          if (i === 10) {
+            this.push(null);
+            return;
+          }
+          this.push(Uint8Array.from([i]));
+          i++;
+        },
+        highWaterMark: 0
+      }).filter(async ([x]) => x !== 5)
+      const result = (await stream.toArray()).map((x) => x[0]);
+      const expected = [...Array(10).keys()].filter((x) => x !== 5);
+      deepStrictEqual(result, expected);
+    }
+    {
+      // Throwing an error during `filter` (sync)
+      const stream = Readable.from([1, 2, 3, 4, 5]).filter((x) => {
+        if (x === 3) {
+          throw new Error('boom');
+        }
+        return true;
+      })
+      await rejects(stream.map((x) => x + x).toArray(), /boom/);
+    }
+    {
+      // Throwing an error during `filter` (async)
+      const stream = Readable.from([1, 2, 3, 4, 5]).filter(async (x) => {
+        if (x === 3) {
+          throw new Error('boom');
+        }
+        return true;
+      })
+      await rejects(stream.filter(() => true).toArray(), /boom/);
+    }
+    {
+      function once(ee, event) {
+        const deferred = deferredPromise();
+        ee.once(event, deferred.resolve);
+        return deferred.promise;
+      }
+      // Concurrency + AbortSignal
+      const ac = new AbortController();
+      let calls = 0;
+      const stream = Readable.from([1, 2, 3, 4]).filter(
+        async (_, { signal }) => {
+          calls++;
+          await once(signal, 'abort');
+        },
+        {
+          signal: ac.signal,
+          concurrency: 2
+        }
+      );
+      queueMicrotask(() => ac.abort());
+      // pump
+      await rejects(
+          async () => {
+            for await (const item of stream) {
+              // nope
+            }
+          },
+          {
+            name: 'AbortError'
+          }
+        );
+    }
+    {
+      // Concurrency result order
+      const stream = Readable.from([1, 2]).filter(
+        async (item, { signal }) => {
+          await scheduler.wait(10 - item);
+          return true
+        },
+        {
+          concurrency: 2
+        }
+      );
+      const expected = [1, 2];
+      for await (const item of stream) {
+        strictEqual(item, expected.shift());
+      }
+    }
+    {
+      // Error cases
+      throws(() => Readable.from([1]).filter(1), /ERR_INVALID_ARG_TYPE/);
+      throws(
+        () =>
+          Readable.from([1]).filter((x) => x, {
+            concurrency: 'Foo'
+          }), { code: 'ERR_OUT_OF_RANGE' }
+      );
+      throws(() => Readable.from([1]).filter((x) => x, 1), {
+        code: 'ERR_INVALID_ARG_TYPE'
+      });
+    }
+    {
+      // Test result is a Readable
+      const stream = Readable.from([1, 2, 3, 4, 5]).filter((x) => true);
+      strictEqual(stream.readable, true);
+    }
+  }
+};
