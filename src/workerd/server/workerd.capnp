@@ -509,6 +509,30 @@ struct Worker {
 
   # TODO(someday): Support distributing objects across a cluster. At present, objects are always
   #   local to one instance of the runtime.
+
+  builtins @13 :List(BuiltinsBundle);
+  # These builtin bundles will be available as imports to the application and can also be used
+  # for specifying wrapped bindings.
+  # A major difference between worker modules and builtins is that latter represents system
+  # capabilities provided by a particular workerd deployment. These bundles are usually
+  # prepared separately and late-linked to the app through this config field.
+
+  struct BuiltinsBundle {
+    modules @0 :List(BuiltinModule);
+  }
+
+  struct BuiltinModule {
+    # A builtin module extending workerd functionality.
+
+    name @0 :Text;
+    # Builtin module name
+
+    src @1 :Data;
+    # Builtin javascript source.
+
+    internal @2 :Bool = false;
+    # Internal modules can be imported by other builins only and not the user code.
+  }
 }
 
 struct ExternalServer {

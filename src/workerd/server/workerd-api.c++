@@ -323,6 +323,13 @@ kj::Own<jsg::ModuleRegistry> WorkerdApiIsolate::compileModules(
 
   jsg::setModulesForResolveCallback<JsgWorkerdIsolate_TypeWrapper>(lock, modules);
 
+  for (auto bundle: conf.getBuiltins()) {
+    for (auto module: bundle.getModules()) {
+      modules->addBuiltinModule(module.getName(), module.getSrc().asChars(),
+          module.getInternal() ? jsg::ModuleRegistry::Type::INTERNAL : jsg::ModuleRegistry::Type::BUILTIN);
+    }
+  }
+
   return modules;
 }
 
