@@ -194,6 +194,12 @@ void Socket::handleProxyStatus(
       auto exc = kj::Exception(kj::Exception::Type::FAILED, __FILE__, __LINE__,
         kj::str(JSG_EXCEPTION(Error) ": proxy request failed"));
       resolveFulfiller(js, exc);
+      KJ_IF_MAYBE(eofResolverPair, readable->eofResolverPair) {
+        KJ_IF_MAYBE(opts, options) {
+          opts->allowHalfOpen = false;
+        };
+        eofResolverPair->resolver.resolve();
+      }
     }
   });
   result.markAsHandled();
