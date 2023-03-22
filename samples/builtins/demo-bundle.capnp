@@ -1,7 +1,7 @@
 using Workerd = import "/workerd/workerd.capnp";
 
-const bundle :Workerd.Worker.BuiltinsBundle = (
+const bundle :Workerd.BuiltinsBundle = (
   modules = [
-    ( name = "demo:secrets", src = embed "secrets.js" ),
+    ( name = "demo:secrets", esModule = embed "secrets.js" ),
   ]
 );
