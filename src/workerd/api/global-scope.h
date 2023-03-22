@@ -18,6 +18,7 @@
 #include "html-rewriter.h"
 #include "trace.h"
 #include "scheduled.h"
+#include "hibernatable-web-socket.h"
 #include "blob.h"
 #include "sockets.h"
 
@@ -151,27 +152,39 @@ struct ExportedHandler {
       jsg::Optional<jsg::Ref<ExecutionContext>> ctx);
   jsg::LenientOptional<jsg::Function<TestHandler>> test;
 
+  typedef kj::Promise<void> HibernatableWebSocketMessageHandler(jsg::Ref<WebSocket>, kj::OneOf<kj::String, kj::Array<byte>> message);
+  jsg::LenientOptional<jsg::Function<HibernatableWebSocketMessageHandler>> webSocketMessage;
+
+  typedef kj::Promise<void> HibernatableWebSocketCloseHandler(jsg::Ref<WebSocket>, kj::String reason, int code);
+  jsg::LenientOptional<jsg::Function<HibernatableWebSocketCloseHandler>> webSocketClose;
+
+  typedef kj::Promise<void> HibernatableWebSocketErrorHandler(jsg::Ref<WebSocket>, jsg::Value);
+  jsg::LenientOptional<jsg::Function<HibernatableWebSocketErrorHandler>> webSocketError;
+
   jsg::SelfRef self;
   // Self-ref potentially allows extracting other custom handlers from the object.
 
-  JSG_STRUCT(fetch, trace, scheduled, alarm, test, self);
+  JSG_STRUCT(fetch, trace, scheduled, alarm, test, webSocketMessage, webSocketClose, webSocketError, self);
 
   JSG_STRUCT_TS_ROOT();
   // ExportedHandler isn't included in the global scope, but we still want to
   // include it in type definitions.
 
   JSG_STRUCT_TS_DEFINE(
-    type ExportedHandlerFetchHandler<Env = unknown> = (request: Request, env: Env, ctx: ExecutionContext) => Response | Promise<Response>;
+    type ExportedHandlerFetchHandler<Env = unknown, CfHostMetadata = unknown> = (request: Request<CfHostMetadata, IncomingRequestCfProperties<CfHostMetadata>>, env: Env, ctx: ExecutionContext) => Response | Promise<Response>;
     type ExportedHandlerTraceHandler<Env = unknown> = (traces: TraceItem[], env: Env, ctx: ExecutionContext) => void | Promise<void>;
     type ExportedHandlerScheduledHandler<Env = unknown> = (controller: ScheduledController, env: Env, ctx: ExecutionContext) => void | Promise<void>;
     type ExportedHandlerQueueHandler<Env = unknown, Message = unknown> = (batch: MessageBatch<Message>, env: Env, ctx: ExecutionContext) => void | Promise<void>;
     type ExportedHandlerTestHandler<Env = unknown> = (controller: TestController, env: Env, ctx: ExecutionContext) => void | Promise<void>;
   );
-  JSG_STRUCT_TS_OVERRIDE(<Env = unknown, QueueMessage = unknown> {
-    fetch?: ExportedHandlerFetchHandler<Env>;
+  JSG_STRUCT_TS_OVERRIDE(<Env = unknown, QueueMessage = unknown, CfHostMetadata = unknown> {
+    fetch?: ExportedHandlerFetchHandler<Env, CfHostMetadata>;
     trace?: ExportedHandlerTraceHandler<Env>;
     scheduled?: ExportedHandlerScheduledHandler<Env>;
     alarm: never;
+    webSocketMessage: never;
+    webSocketClose: never;
+    webSocketError: never;
     queue?: ExportedHandlerQueueHandler<Env, QueueMessage>;
     test?: ExportedHandlerTestHandler<Env>;
   });
@@ -238,6 +251,21 @@ public:
   // Received test() (called from C++, not JS). See WorkerInterface::test(). This version returns
   // a jsg::Promise<void>; it fails if an exception is thrown. WorkerEntrypoint will catch these
   // and report them.
+
+  void sendHibernatableWebSocketMessage(
+      kj::OneOf<kj::String, kj::Array<byte>> message,
+      Worker::Lock& lock,
+      kj::Maybe<ExportedHandler&> exportedHandler);
+
+  void sendHibernatableWebSocketClose(
+      kj::String reason,
+      int code,
+      Worker::Lock& lock,
+      kj::Maybe<ExportedHandler&> exportedHandler);
+
+  void sendHibernatableWebSocketError(
+      Worker::Lock& lock,
+      kj::Maybe<ExportedHandler&> exportedHandler);
 
   void emitPromiseRejection(
       jsg::Lock& js,

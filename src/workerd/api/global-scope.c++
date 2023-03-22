@@ -15,6 +15,7 @@
 #include <workerd/util/sentry.h>
 #include <workerd/util/sentry.h>
 #include <workerd/util/own-util.h>
+#include <workerd/util/thread-scopes.h>
 
 namespace workerd::api {
 
@@ -139,11 +140,17 @@ kj::Promise<DeferredProxy<void>> ServiceWorkerGlobalScope::request(
 
   KJ_IF_MAYBE(c, cfBlobJson) {
     auto jsonString = jsg::v8Str(isolate, *c);
+    auto context = isolate->GetCurrentContext();
 
-    auto handle = jsg::check(v8::JSON::Parse(isolate->GetCurrentContext(), jsonString));
+    auto handle = jsg::check(v8::JSON::Parse(context, jsonString));
+    KJ_ASSERT(handle->IsObject());
+
+    maybeWrapBotManagement(isolate, handle.As<v8::Object>());
+
+    NoRequestCfProxyLoggingScope noLoggingScope;
     // For the inbound request, we make the `cf` blob immutable.
     jsg::recursivelyFreeze(isolate->GetCurrentContext(), handle);
-    KJ_ASSERT(handle->IsObject());
+
     cf = jsg::V8Ref(isolate, handle.As<v8::Object>());
   }
 
@@ -453,6 +460,49 @@ jsg::Promise<void> ServiceWorkerGlobalScope::test(
                      eh.getCtx(lock.getIsolate()));
 }
 
+void ServiceWorkerGlobalScope::sendHibernatableWebSocketMessage(
+    kj::OneOf<kj::String, kj::Array<byte>> message,
+    Worker::Lock& lock, kj::Maybe<ExportedHandler&> exportedHandler) {
+  auto event = jsg::alloc<HibernatableWebSocketEvent>();
+
+  KJ_IF_MAYBE(h, exportedHandler) {
+    KJ_IF_MAYBE(handler, h->webSocketMessage) {
+      auto promise = (*handler)(lock, event->getWebSocket(lock), kj::mv(message));
+      event->waitUntil(kj::mv(promise));
+    }
+    // We want to deliver a message, but if no webSocketMessage handler is exported, we shouldn't fail
+  }
+}
+
+void ServiceWorkerGlobalScope::sendHibernatableWebSocketClose(
+    kj::String reason,
+    int code,
+    Worker::Lock& lock, kj::Maybe<ExportedHandler&> exportedHandler) {
+  auto event = jsg::alloc<HibernatableWebSocketEvent>();
+
+  KJ_IF_MAYBE(h, exportedHandler) {
+    KJ_IF_MAYBE(handler, h->webSocketClose) {
+      auto promise = (*handler)(lock, event->getWebSocket(lock), kj::mv(reason), code);
+      event->waitUntil(kj::mv(promise));
+    }
+    // We want to deliver close, but if no webSocketClose handler is exported, we shouldn't fail
+  }
+}
+
+void ServiceWorkerGlobalScope::sendHibernatableWebSocketError(
+    Worker::Lock& lock,
+    kj::Maybe<ExportedHandler&> exportedHandler) {
+  auto event = jsg::alloc<HibernatableWebSocketEvent>();
+
+  KJ_IF_MAYBE(h, exportedHandler) {
+    KJ_IF_MAYBE(handler, h->webSocketError) {
+      auto promise = (*handler)(lock, event->getWebSocket(lock), event->getError(lock));
+      event->waitUntil(kj::mv(promise));
+    }
+    // We want to deliver an error, but if no webSocketError handler is exported, we shouldn't fail
+  }
+}
+
 void ServiceWorkerGlobalScope::emitPromiseRejection(
     jsg::Lock& js,
     v8::PromiseRejectEvent event,
@@ -530,6 +580,12 @@ v8::Local<v8::Value> ServiceWorkerGlobalScope::structuredClone(
     });
   }
 
+  // On the off chance the user is cloning the request.cf metadata, let's make sure
+  // any proxied logging is disabled here. Note that in this case we are not adding
+  // the proxied property handler to the resulting object which means they could
+  // clone the object and access proxied fields we'd normally log but that seems to
+  // be an edge case not worth handling here.
+  NoRequestCfProxyLoggingScope noLoggingScope;
   return jsg::structuredClone(value, isolate, transfers);
 }
 
