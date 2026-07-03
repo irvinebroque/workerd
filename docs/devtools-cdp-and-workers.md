@@ -15,6 +15,11 @@ The immediate questions this answers are:
 - What would "implement tracing support" mean in `workerd`?
 - Could better runtime/CDP support remove the custom Cloudflare DevTools fork?
 
+All source links below are fixed to the inspected revisions:
+[`workerd@b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1`][workerd-commit],
+[`workers-sdk@a9f0daeee2de350045e74e8ba52dfef49509977a`][workers-sdk-commit],
+and [`devtools-frontend@b66ecf5bef3ae6c769dbc6d904ce1c54d3771227`][devtools-commit].
+
 ## Executive Summary
 
 Chrome DevTools has two different memory-related paths that are easy to confuse:
@@ -132,17 +137,20 @@ The relevant memory event is `UpdateCounters`:
 
 In upstream DevTools at the Workers fork base revision:
 
-- `front_end/models/trace/handlers/MemoryHandler.ts` stores events where
-  `event.name === "UpdateCounters"`.
-- `front_end/panels/timeline/TimelineEventOverview.ts` renders the heap graph
-  from `event.args.data.jsHeapSizeUsed`.
+- [`front_end/models/trace/handlers/MemoryHandler.ts`][devtools-memory-handler]
+  stores events where `event.name === "UpdateCounters"`.
+- [`front_end/panels/timeline/TimelineEventOverview.ts`][devtools-timeline-memory-overview]
+  renders the heap graph from `event.args.data.jsHeapSizeUsed`.
 - The graph filters counters to `parsedTrace.Meta.topLevelRendererIds`, so a
-  non-browser trace also needs compatible metadata or a frontend adaptation.
+  non-browser trace also needs compatible metadata from
+  [`front_end/models/trace/handlers/MetaHandler.ts`][devtools-meta-export] or a
+  frontend adaptation.
 
 That last point matters. A trace containing `UpdateCounters` is not always
 enough. DevTools also needs enough metadata to decide which process is the main
 renderer-like process. Browser traces provide this through events such as
-`TracingStartedInBrowser` and `FrameCommittedInBrowser`.
+[`TracingStartedInBrowser`][devtools-meta-tracing-started] and
+[`FrameCommittedInBrowser`][devtools-meta-frame-committed].
 
 ## Node.js DevTools Path
 
@@ -151,15 +159,17 @@ to the JavaScript runtime, debugger, CPU profiler, and heap profiler, but it is
 not the same as a full browser page target.
 
 For Node-like targets, DevTools uses its Node/JavaScript timeline path. In the
-DevTools revision inspected here, `front_end/panels/js_timeline/js_timeline-meta.ts`
+DevTools revision inspected here,
+[`front_end/panels/js_timeline/js_timeline-meta.ts`][devtools-js-timeline-node]
 loads the main Timeline panel with `isNode: true`:
 
 ```ts
 return Timeline.TimelinePanel.TimelinePanel.instance({forceNew: null, isNode: true});
 ```
 
-When `isNode` is true, `front_end/panels/timeline/TimelinePanel.ts` records via
-the CPU profiler path:
+When `isNode` is true,
+[`front_end/panels/timeline/TimelinePanel.ts`][devtools-timeline-node-stop]
+records via the CPU profiler path:
 
 ```text
 DevTools frontend
@@ -170,7 +180,9 @@ DevTools frontend
   -> convert CPU profile into fake trace
 ```
 
-The conversion happens in `front_end/panels/timeline/TimelineLoader.ts` via:
+The conversion happens in
+[`front_end/panels/timeline/TimelineLoader.ts`][devtools-timeline-loader-fake-trace]
+via:
 
 ```ts
 SamplesIntegrator.createFakeTraceFromCpuProfile(profile, ThreadID(1))
@@ -195,36 +207,35 @@ profiler API that Node does not have.
 ## Workers / `workerd` Path Today
 
 The Workers SDK serves a patched Chrome DevTools frontend. Wrangler opens this
-hosted frontend from:
+hosted frontend from
+[`packages/wrangler/src/dev/inspect.ts`][wrangler-inspect-url]. That source
+builds the `ws` and optional `domain` query params and the
+`https://devtools.devprod.cloudflare.dev/js_app?...` URL.
 
-```text
-/Users/brendan/src/workers-sdk/packages/wrangler/src/dev/inspect.ts
-```
-
-The patched frontend is maintained in:
-
-```text
-/Users/brendan/src/workers-sdk/packages/chrome-devtools-patches
-```
+The patched frontend is maintained in
+[`packages/chrome-devtools-patches`][chrome-devtools-patches].
 
 The patch base is recorded in the package Makefile:
 
-```text
+```make
 HEAD = b66ecf5bef3ae6c769dbc6d904ce1c54d3771227
 ```
 
-On the runtime side, `workerd` handles inspector messages in:
+That `HEAD` value is in the
+[`packages/chrome-devtools-patches/Makefile`][chrome-devtools-patches-makefile-head],
+which also [checks out and applies the patch stack][chrome-devtools-patches-makefile-apply].
 
-```text
-/Users/brendan/src/workerd/src/workerd/io/worker.c++
-/Users/brendan/src/workerd/src/workerd/io/cdp.capnp
-```
+On the runtime side, `workerd` handles inspector messages through
+[`src/workerd/io/worker.c++`][workerd-worker-inspector] and the protocol model
+in [`src/workerd/io/cdp.capnp`][workerd-cdp-modeled].
 
 `workerd` decodes incoming CDP JSON into the small set of methods modeled in
-`cdp.capnp`. It manually handles some commands, then forwards unknown commands
-to the underlying V8 inspector session.
+[`src/workerd/io/cdp.capnp`][workerd-cdp-modeled]. It manually handles some
+commands in [`src/workerd/io/worker.c++`][workerd-worker-handlers], then
+forwards unknown commands to the underlying V8 inspector session.
 
-The relevant behavior is in `InspectorChannelImpl::dispatchProtocolMessage()`:
+The relevant behavior is in
+[`InspectorChannelImpl::dispatchProtocolMessage()`][workerd-worker-inspector]:
 
 ```text
 if the command is one of the modeled commands:
@@ -233,7 +244,9 @@ else:
   session.dispatchProtocolMessage(...)
 ```
 
-The manually handled subset includes:
+The manually handled subset is the protocol union in
+[`src/workerd/io/cdp.capnp`][workerd-cdp-modeled], with handlers in
+[`src/workerd/io/worker.c++`][workerd-worker-handlers], and includes:
 
 | Domain method | `workerd` behavior |
 | --- | --- |
@@ -246,8 +259,8 @@ The manually handled subset includes:
 | `Profiler.stop` | Stops CPU profiling and writes a CDP CPU profile |
 | `HeapProfiler.takeHeapSnapshot` | Takes and serializes a heap snapshot manually |
 
-Unknown commands are forwarded to V8. This means these standard V8 inspector
-methods are likely already reaching V8:
+Unknown commands are [forwarded to V8][workerd-v8-fallback]. This means these
+standard V8 inspector methods are likely already reaching V8:
 
 | Method | Why it matters |
 | --- | --- |
@@ -256,18 +269,15 @@ methods are likely already reaching V8:
 | `HeapProfiler.stopSampling` | Stops allocation sampling and returns the profile |
 | `HeapProfiler.startTrackingHeapObjects` | Starts allocation instrumentation / heap object tracking |
 | `HeapProfiler.stopTrackingHeapObjects` | Stops tracking and produces final heap snapshot data |
-| `Runtime.getIsolateId` | Standard experimental CDP method currently used by a Workers frontend keepalive patch |
+| `Runtime.getIsolateId` | Standard experimental CDP method currently used by a Workers frontend [keepalive patch][workers-devtools-keepalive-patch] |
 
 This fallback behavior was found by code inspection. It still needs a live
 inspector smoke test before removing UI restrictions.
 
 ## Why Workers Hide Memory Panel Allocation Modes
 
-The Workers DevTools patch stack includes:
-
-```text
-/Users/brendan/src/workers-sdk/packages/chrome-devtools-patches/patches/0007-Limit-heap-profiling-modes-available.patch
-```
+The Workers DevTools patch stack includes
+[`0007-Limit-heap-profiling-modes-available.patch`][workers-devtools-heap-patch].
 
 That patch changes the Memory panel profile types from:
 
@@ -293,12 +303,16 @@ So the frontend explicitly hides:
 - Detached elements
 
 For the two allocation tools, upstream DevTools uses standard `HeapProfiler.*`
-commands:
+commands through
+[`front_end/core/sdk/HeapProfilerModel.ts`][devtools-heapprofiler-sampling-model],
+[`front_end/panels/profiler/HeapProfileView.ts`][devtools-heapprofile-sampling-view],
+and
+[`front_end/panels/profiler/HeapSnapshotView.ts`][devtools-heapsnapshot-tracking-view]:
 
 | UI mode | CDP methods/events |
 | --- | --- |
-| Allocation sampling | `HeapProfiler.startSampling`, `HeapProfiler.getSamplingProfile`, `HeapProfiler.stopSampling` |
-| Allocation instrumentation | `HeapProfiler.startTrackingHeapObjects`, `HeapProfiler.heapStatsUpdate`, `HeapProfiler.lastSeenObjectId`, `HeapProfiler.stopTrackingHeapObjects` |
+| Allocation sampling | [`HeapProfiler.startSampling`, `HeapProfiler.getSamplingProfile`, `HeapProfiler.stopSampling`][devtools-heapprofiler-sampling-model] |
+| Allocation instrumentation | [`HeapProfiler.startTrackingHeapObjects`, `HeapProfiler.stopTrackingHeapObjects`][devtools-heapprofiler-snapshot-model], plus [`HeapProfiler.heapStatsUpdate` and `HeapProfiler.lastSeenObjectId` events][devtools-heapprofiler-events] |
 
 Because `workerd` does not currently intercept these methods, they should fall
 through to V8. If they work, the runtime change needed for allocation sampling
@@ -313,10 +327,12 @@ expects live tracking events and a final snapshot. The important events are:
 - `HeapProfiler.addHeapSnapshotChunk`
 - `HeapProfiler.reportHeapSnapshotProgress`
 
-One thing to validate is whether `HeapProfiler.stopTrackingHeapObjects(true)`,
+One thing to validate is whether
+[`HeapProfiler.stopTrackingHeapObjects(true)`][devtools-heapsnapshot-tracking-stop],
 when forwarded to V8, produces the final snapshot and progress events in the
 shape DevTools expects. `workerd` has a custom implementation for
-`HeapProfiler.takeHeapSnapshot`, but not for `stopTrackingHeapObjects`.
+[`HeapProfiler.takeHeapSnapshot`][workerd-worker-handlers], but not for
+`stopTrackingHeapObjects`.
 
 ## What "Implement Tracing Support" Means
 
@@ -363,12 +379,13 @@ The trace timestamp must use a stable trace clock, in microseconds, consistent
 with the other events in the same trace.
 
 However, that event alone may still not draw in upstream DevTools. The trace
-model currently filters the memory graph to top-level renderer process ids. A
-Worker trace therefore needs one of these:
+model currently [filters the memory graph to top-level renderer process
+ids][devtools-timeline-memory-overview]. A Worker trace therefore needs one of
+these:
 
 | Approach | Meaning |
 | --- | --- |
-| Emit browser-compatible metadata | Produce enough events such as `TracingStartedInBrowser` or `FrameCommittedInBrowser` for DevTools to classify the Worker process id as a top-level renderer-like process |
+| Emit browser-compatible metadata | Produce enough events such as [`TracingStartedInBrowser`][devtools-meta-tracing-started] or [`FrameCommittedInBrowser`][devtools-meta-frame-committed] for DevTools to classify the Worker process id as a top-level renderer-like process |
 | Teach DevTools about Worker traces | Add or upstream frontend logic so Worker traces can render memory counters without pretending to be a page renderer |
 | Keep using Node CPU profile path | No trace metadata needed, but the Performance memory graph remains empty unless the fake trace is extended |
 
@@ -385,8 +402,9 @@ Other useful trace events would include:
 
 There is also a frontend selection issue. Even if `workerd` implements
 `Tracing.*`, the current Workers frontend path still loads the Timeline panel in
-Node mode. In Node mode, DevTools chooses `Profiler.start` / `Profiler.stop`,
-not `Tracing.start` / `Tracing.end`.
+[Node mode][devtools-js-timeline-node]. In Node mode, DevTools chooses
+[`Profiler.start` / `Profiler.stop`][devtools-timeline-node-stop], not
+`Tracing.start` / `Tracing.end`.
 
 So making Performance memory work through tracing requires two coordinated
 changes:
@@ -418,8 +436,10 @@ HeapProfiler.stopSampling
 Expected result:
 
 - If V8 fallback works, no runtime implementation is needed.
-- The Workers frontend can stop hiding `registry.samplingHeapProfileType`.
-- Add a regression test under `src/workerd/server/tests/inspector`.
+- The Workers frontend can stop hiding
+  [`registry.samplingHeapProfileType`][workers-devtools-heap-patch].
+- Add a regression test under
+  [`src/workerd/server/tests/inspector`][workerd-inspector-tests].
 
 ### 2. Validate and unhide allocation instrumentation
 
@@ -437,22 +457,24 @@ HeapProfiler.reportHeapSnapshotProgress
 Expected result:
 
 - If V8 fallback works, the frontend can stop hiding
-  `registry.trackingHeapSnapshotProfileType`.
+  [`registry.trackingHeapSnapshotProfileType`][workers-devtools-heap-patch].
 - If final snapshots or events do not work, `workerd` could explicitly bridge
   this subset of `HeapProfiler.*` the same way it currently bridges
-  `takeHeapSnapshot`.
+  [`takeHeapSnapshot`][workerd-worker-handlers].
 
 ### 3. Implement standard `Network.getResponseBody`
 
-The current `workerd` manual handler returns:
+The current [`workerd` manual handler][workerd-worker-handlers] returns:
 
 ```text
 Network.getResponseBody is not supported in this fork
 ```
 
-The Workers frontend has a network patch that uses Cloudflare-specific response
-body plumbing. A standard `Network.getResponseBody` implementation would make
-this behavior closer to upstream DevTools and could reduce custom frontend code.
+The Workers frontend has a
+[`0006-All-about-the-network-tab.patch`][workers-devtools-network-patch] patch
+that uses Cloudflare-specific response body plumbing. A standard
+`Network.getResponseBody` implementation would make this behavior closer to
+upstream DevTools and could reduce custom frontend code.
 
 ### 4. Implement trace-capable Performance recording
 
@@ -478,14 +500,14 @@ The current patch stack includes several kinds of changes:
 
 | Patch | What it does | Can runtime work remove it? |
 | --- | --- | --- |
-| `0001-Expand-Browser-support-make-it-work-in-Firefox-Safar.patch` | Allows hosted DevTools to run in non-Chrome browsers | No. This is frontend/hosting compatibility. |
-| `0002-Setup-Cloudflare-devtools-target-type.patch` | Adds Cloudflare target type behavior | Maybe only if Workers uses an upstream target type or upstream accepts a Workers target concept. |
-| `0003-Add-ping-to-improve-connection-stability.-Without-th.patch` | Sends periodic `Runtime.getIsolateId` as a keepalive | Maybe. Better WebSocket/proxy keepalive behavior could remove this frontend patch. |
-| `0004-Support-viewing-source-files-over-the-network.-This-.patch` | Changes source loading behavior | Maybe. Depends whether standard source URLs/source maps can represent all Worker sources. |
-| `0005-Support-forcing-the-devtools-theme-via-a-query-param.patch` | Adds theme query-param behavior | No. This is hosted frontend product behavior. |
-| `0006-All-about-the-network-tab.patch` | Worker-specific network tab behavior and response body plumbing | Partly. Standard `Network.*` support could reduce it, but Worker-specific UX may remain. |
-| `0007-Limit-heap-profiling-modes-available.patch` | Hides allocation sampling and instrumentation | Likely yes if `HeapProfiler.*` is validated or fixed. |
-| `0008-Use-the-worker-name-as-the-title-for-the-Javascript-.patch` | Uses query-param Worker name in Performance isolate selector | Maybe. Better target naming metadata could reduce it, but this is presentation logic. |
+| [`0001-Expand-Browser-support-make-it-work-in-Firefox-Safar.patch`][workers-devtools-patch-0001] | Allows hosted DevTools to run in non-Chrome browsers | No. This is frontend/hosting compatibility. |
+| [`0002-Setup-Cloudflare-devtools-target-type.patch`][workers-devtools-patch-0002] | Adds Cloudflare target type behavior | Maybe only if Workers uses an upstream target type or upstream accepts a Workers target concept. |
+| [`0003-Add-ping-to-improve-connection-stability.-Without-th.patch`][workers-devtools-keepalive-patch] | Sends periodic `Runtime.getIsolateId` as a keepalive | Maybe. Better WebSocket/proxy keepalive behavior could remove this frontend patch. |
+| [`0004-Support-viewing-source-files-over-the-network.-This-.patch`][workers-devtools-patch-0004] | Changes source loading behavior | Maybe. Depends whether standard source URLs/source maps can represent all Worker sources. |
+| [`0005-Support-forcing-the-devtools-theme-via-a-query-param.patch`][workers-devtools-patch-0005] | Adds theme query-param behavior | No. This is hosted frontend product behavior. |
+| [`0006-All-about-the-network-tab.patch`][workers-devtools-network-patch] | Worker-specific network tab behavior and response body plumbing | Partly. Standard `Network.*` support could reduce it, but Worker-specific UX may remain. |
+| [`0007-Limit-heap-profiling-modes-available.patch`][workers-devtools-heap-patch] | Hides allocation sampling and instrumentation | Likely yes if `HeapProfiler.*` is validated or fixed. |
+| [`0008-Use-the-worker-name-as-the-title-for-the-Javascript-.patch`][workers-devtools-patch-0008] | Uses query-param Worker name in Performance isolate selector | Maybe. Better target naming metadata could reduce it, but this is presentation logic. |
 
 The likely end state is not "runtime support removes every patch." A more
 realistic goal is:
@@ -500,8 +522,8 @@ Keep only small product/hosting patches, or upstream them.
 
 | Priority | Step | Outcome |
 | --- | --- | --- |
-| 1 | Add inspector tests for heap allocation sampling | Know whether `registry.samplingHeapProfileType` can be restored |
-| 2 | Add inspector tests for heap object tracking and final snapshots | Know whether `registry.trackingHeapSnapshotProfileType` can be restored |
+| 1 | Add inspector tests for heap allocation sampling in [`src/workerd/server/tests/inspector`][workerd-inspector-tests] | Know whether [`registry.samplingHeapProfileType`][workers-devtools-heap-patch] can be restored |
+| 2 | Add inspector tests for heap object tracking and final snapshots in [`src/workerd/server/tests/inspector`][workerd-inspector-tests] | Know whether [`registry.trackingHeapSnapshotProfileType`][workers-devtools-heap-patch] can be restored |
 | 3 | Decide whether Performance memory should be hidden or supported | Avoid a checkbox that appears broken |
 | 4 | If supporting Performance memory, design a Worker tracing MVP | Define exact `Tracing.*` methods, event metadata, and frontend path |
 | 5 | Audit network tab patch against standard `Network.*` support | Identify which parts can move into runtime protocol behavior |
@@ -510,11 +532,14 @@ Keep only small product/hosting patches, or upstream them.
 
 High confidence:
 
-- Browser Performance memory uses trace `UpdateCounters`, not heap snapshots.
-- Node-mode Performance recording uses CPU profiler output and fake traces.
+- Browser Performance memory uses trace
+  [`UpdateCounters`][devtools-memory-handler], not heap snapshots.
+- Node-mode Performance recording uses
+  [CPU profiler output][devtools-timeline-node-stop] and
+  [fake traces][devtools-timeline-loader-fake-trace].
 - Workers currently follow the Node-mode Performance path.
-- `workerd` forwards unknown CDP methods to V8 inspector.
-- `0007` explicitly hides heap allocation Memory panel modes.
+- `workerd` [forwards unknown CDP methods to V8 inspector][workerd-v8-fallback].
+- [`0007` explicitly hides heap allocation Memory panel modes][workers-devtools-heap-patch].
 
 Medium confidence:
 
@@ -531,3 +556,38 @@ Needs live validation:
   with the upstream DevTools UI.
 - Whether a minimal Worker trace can satisfy DevTools' `Meta` handler without a
   frontend adaptation.
+
+[workerd-commit]: https://github.com/cloudflare/workerd/commit/b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1
+[workers-sdk-commit]: https://github.com/cloudflare/workers-sdk/commit/a9f0daeee2de350045e74e8ba52dfef49509977a
+[devtools-commit]: https://github.com/ChromeDevTools/devtools-frontend/commit/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227
+[devtools-memory-handler]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/models/trace/handlers/MemoryHandler.ts#L18-L30
+[devtools-timeline-memory-overview]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/timeline/TimelineEventOverview.ts#L545-L616
+[devtools-meta-export]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/models/trace/handlers/MetaHandler.ts#L490-L510
+[devtools-meta-tracing-started]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/models/trace/handlers/MetaHandler.ts#L187-L201
+[devtools-meta-frame-committed]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/models/trace/handlers/MetaHandler.ts#L256-L272
+[devtools-js-timeline-node]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/js_timeline/js_timeline-meta.ts#L66
+[devtools-timeline-node-stop]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/timeline/TimelinePanel.ts#L1667-L1785
+[devtools-timeline-loader-fake-trace]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/timeline/TimelineLoader.ts#L259-L273
+[wrangler-inspect-url]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/wrangler/src/dev/inspect.ts#L256-L281
+[chrome-devtools-patches]: https://github.com/cloudflare/workers-sdk/tree/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches
+[chrome-devtools-patches-makefile-head]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/Makefile#L4
+[chrome-devtools-patches-makefile-apply]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/Makefile#L13-L16
+[workerd-worker-inspector]: https://github.com/cloudflare/workerd/blob/b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1/src/workerd/io/worker.c++#L2923-L3004
+[workerd-cdp-modeled]: https://github.com/cloudflare/workerd/blob/b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1/src/workerd/io/cdp.capnp#L379-L386
+[workerd-worker-handlers]: https://github.com/cloudflare/workerd/blob/b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1/src/workerd/io/worker.c++#L2936-L2980
+[workerd-v8-fallback]: https://github.com/cloudflare/workerd/blob/b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1/src/workerd/io/worker.c++#L3003
+[workers-devtools-keepalive-patch]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0003-Add-ping-to-improve-connection-stability.-Without-th.patch#L20-L36
+[workers-devtools-heap-patch]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0007-Limit-heap-profiling-modes-available.patch#L18-L25
+[devtools-heapprofiler-sampling-model]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/core/sdk/HeapProfilerModel.ts#L47-L72
+[devtools-heapprofile-sampling-view]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/profiler/HeapProfileView.ts#L334-L421
+[devtools-heapsnapshot-tracking-view]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/profiler/HeapSnapshotView.ts#L1444-L1586
+[devtools-heapprofiler-snapshot-model]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/core/sdk/HeapProfilerModel.ts#L108-L119
+[devtools-heapprofiler-events]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/core/sdk/HeapProfilerModel.ts#L123-L135
+[devtools-heapsnapshot-tracking-stop]: https://github.com/ChromeDevTools/devtools-frontend/blob/b66ecf5bef3ae6c769dbc6d904ce1c54d3771227/front_end/panels/profiler/HeapSnapshotView.ts#L1586
+[workerd-inspector-tests]: https://github.com/cloudflare/workerd/tree/b4b73d8b74e13dc69410ca0522ec57a25cc1f3c1/src/workerd/server/tests/inspector
+[workers-devtools-network-patch]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0006-All-about-the-network-tab.patch
+[workers-devtools-patch-0001]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0001-Expand-Browser-support-make-it-work-in-Firefox-Safar.patch
+[workers-devtools-patch-0002]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0002-Setup-Cloudflare-devtools-target-type.patch
+[workers-devtools-patch-0004]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0004-Support-viewing-source-files-over-the-network.-This-.patch
+[workers-devtools-patch-0005]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0005-Support-forcing-the-devtools-theme-via-a-query-param.patch
+[workers-devtools-patch-0008]: https://github.com/cloudflare/workers-sdk/blob/a9f0daeee2de350045e74e8ba52dfef49509977a/packages/chrome-devtools-patches/patches/0008-Use-the-worker-name-as-the-title-for-the-Javascript-.patch
